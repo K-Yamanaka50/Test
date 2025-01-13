@@ -1,0 +1,152 @@
+---
+title: "MidtermRShinyProject"
+author: "Keanu Shui, Nifemi Ogunmesa, Cassidy"
+date: "2024-11-06"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+## Load library and datasets
+```{r}
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(scales)
+library(readr)
+library(shiny)
+library("reshape2")
+library(usmap)
+library(plotly)
+library('rsconnect')
+
+```
+
+Shinyapps.io Connect
+
+```{r}
+rsconnect::setAccountInfo(name='keanuy',
+			  token='77E54F106BB77C0B210FEF9E76173732',
+			  secret='94sIa/7uPJM3Lffg8mHzBqeJp8PLnvOs3O9SYjNw')
+```
+
+
+Secondary Shinyapps.io use
+```{r}
+library(rsconnect)
+    rsconnect::deployApp('~/Documents/Stats230/GithubFolderShinyApp')
+```
+
+## Data Wrangling for Graph
+```{r}
+shinyMidtermData <- read_csv("~/Documents/Stats230/LatestFINALwrangledDataMidterm.csv")
+
+#Return 2023 Point in Time (PIT) Count Dataset from 2023 *Latest HUD Data*
+GraphshinyMidtermData <-   shinyMidtermData[, 4:29] %>%
+  filter(Year == 2023)
+
+## Created New Datasets by Extracting Variable Columns from Original Dataset
+newAges <-  GraphshinyMidtermData[, 1:7]
+newGender <- GraphshinyMidtermData[, 8:12]
+newRace <- GraphshinyMidtermData[, 13:20]
+newSheltered <- GraphshinyMidtermData[, 21:25]
+
+## Convert to Long Format
+d1 <- melt(newAges, variable.name = "Age", value.name = "Value")
+d2 <- melt(newGender, variable.name = "Gender", value.name = "Value")
+d3 <- melt(newRace, variable.name = "Race", value.name = "Value")
+d4 <- melt(newSheltered, variable.name = "Sheltered", value.name = "Value")
+```
+
+
+## Data Wrangling for Map
+```{r}
+MapData <- shinyMidtermData %>%  # so i can fix the data itself... or i can just remove it in the map
+  separate('CoC Number',
+           into = c("state", "CoC Number"), sep = "\\-") %>%
+  group_by(state, Year) %>%
+  summarize(TotalUnhoused = sum(Overall.Total),
+            CocCount = n()) %>%
+  mutate(summed = paste0(Year, "\nCoC:", CocCount))
+```
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+## Set up the UI object
+ui <- navbarPage("Navigation",
+  tabPanel("Map",
+  plotlyOutput('mapPlot')
+           
+  ),
+  tabPanel("Graph",
+  mainPanel(position = "right",
+     mainPanel(
+       selectInput(inputId = "variable", label = "Housing Status & Identity",
+                   choices = c("Age", "Gender", "Race", "Sheltered"))), ## users can choose between 4 variables
+       mainPanel(
+      plotOutput('barPlot', width = "200%")
+              ))))
+
+
+## Set up the server function
+server <- function(input, output){
+  ## Choose dataset based on user input
+  selected_data<- reactive({
+    df<- switch(input$variable,
+           "Age" = d1,
+           "Gender" = d2,
+           "Race" = d3,
+           "Sheltered" = d4)
+    return (df)
+    }
+    )
+  
+## Render Map plot
+  output$mapPlot <- renderPlotly({plot_geo(MapData,
+                         locationmode = 'USA-states',
+                         frame = ~Year) %>%
+  add_trace(locations = ~state,
+            z = ~TotalUnhoused,
+            zmin=0,
+            zmax= 185000,
+            color = ~TotalUnhoused,
+            colorscale = 'YlOrRd',
+            text = ~summed) %>%
+  layout(geo = list(scope='usa'),
+         title= "Point in Time (PIT) Count By State\n2014-2023") %>%
+      colorbar(title = "Total Unhoused")
+      
+    })
+
+## Render Bar plot based on selected dataset
+  output$barPlot <- renderPlot({
+    ggplot(selected_data(), aes_string(x = input$variable, y = "Value", fill = input$variable) 
+       ) + geom_bar(stat = "identity", position = "dodge") +
+      labs(title = paste("U.S. Department of Housing and Urban Development (HUD) 
+Point in Time (PIT) Count Data for 2023"), y = "Number of 
+Unhoused People") +
+      scale_y_continuous(labels = scales::comma)+
+      theme(plot.title = element_text(size = 15, face = "bold", hjust = 0.5),
+            axis.text.x = element_text(angle = 45, hjust = 1, size = 15),
+            axis.title.y = element_text(size = 10, face = "bold"),
+            axis.title.x = element_text(size = 16, face = "bold"))+
+      guides(fill = "none")
+    
+                                        
+  })}
+## Build and run
+shinyApp(ui, server)    
+```
+
+
+
